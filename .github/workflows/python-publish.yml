@@ -1,0 +1,78 @@
+name: Deploy python version on PIP
+
+on:
+  push:
+    tags:
+      - '*.*.*' 
+
+jobs:
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set output
+      id: vars
+      run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install pylint
+      run: pip install pylint setuptools wheel twine
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Lint with pylint
+      run: pylint **/*.py
+
+    - name: Install test-dependencies
+      run: pip install -r test-requirements.txt
+
+    - name: Test with pytest
+      run: pytest --doctest-modules --junitxml=junit/test-results.xml --cov=archisiner --cov-report=xml --cov-report=html
+
+    - name: Build and publish
+      env:
+        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      run: |
+        python setup.py sdist bdist_wheel
+        twine upload dist/*
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+      with:
+        tag_name: ${{ steps.vars.outputs.tag }}
+        release_name: Release ${{ steps.vars.outputs.tag }}
+        draft: false
+        prerelease: false
+
+    - name: Upload tgz
+      id: upload-release-tgz
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: dist/archisiner-${{ steps.vars.outputs.tag }}.tar.gz
+        asset_name: archisiner-${{ steps.vars.outputs.tag }}.tar.gz
+        asset_content_type: application/x-gzip
+
+    - name: Upload Wheel
+      id: upload-release-whl
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+        asset_path: dist/archisiner-${{ steps.vars.outputs.tag }}-py3-none-any.whl
+        asset_name: archisiner-${{ steps.vars.outputs.tag }}-py3-none-any.whl
+        asset_content_type: application/x-wheel+zip
